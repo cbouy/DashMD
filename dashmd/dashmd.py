@@ -37,19 +37,22 @@ def create_doc(doc, title, default_dir, update):
         title="Dashboard",
         child=grid([
         row([
-            column([
-                row([document.md_dir, document.anim_button]), document.autocomp_results, document.progressbar, document.pie
-            ]),
-            column(
-                row([document.mdout_sel, document.mdout_button]),
-                row([document.calc_speed]),
-                row([document.eta]),
-                row([document.last_update]),
-                row([document.slider]),
-            ),
+            column([document.md_dir, document.autocomp_results]),
+            document.anim_button,
         ]),
-        #row([document.bar]),
-        ])
+        row([
+            column([document.pie]),
+            column([
+                document.progressbar,
+                document.calc_speed,
+                document.eta,
+                document.last_update,
+                document.slider,
+            ]),
+        ]),
+        row([document.bar]),
+        row([document.mdout_sel, document.mdout_button]),
+        ], sizing_mode="scale_both")
     )
     temp_tab = Panel(title="Temperature", child=document.temperature_fig)
     press_tab = Panel(title="Pressure", child=document.pressure_fig)

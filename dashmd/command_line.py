@@ -1,4 +1,4 @@
-import argparse, os
+import argparse, os, sys
 from functools import partial
 from bokeh.server.server import Server
 from .dashmd import create_doc
@@ -31,9 +31,13 @@ def main():
         'num_procs': 1,
     }
     # start the server
-    server = Server(partial(create_doc,
-        title=args.title, default_dir=args.default_dir, update=args.update,
-        ), **kwargs)
+    try:
+        server = Server(partial(create_doc,
+            title=args.title, default_dir=args.default_dir, update=args.update,
+            ), **kwargs)
+    except OSError:
+        sys.stderr.write(f"[ERROR] Port {args.port} is already in use. Please specify a different one by using the --port flag.\n")
+        sys.exit(1)
     server.start()
     print(f"Opening {args.title} on http://localhost:{args.port}")
     server.io_loop.add_callback(server.show, "/")
