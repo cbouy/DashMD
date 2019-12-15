@@ -5,10 +5,16 @@ import numpy as np
 from bokeh.models import HoverTool
 from bokeh.palettes import brewer
 
+log = logging.getLogger("dashmd")
+
+
 # number of workers for calculations
 max_workers = cpu_count()
+log.debug(f"Detected {max_workers} CPU cores")
+# path to static
+DASHMD_PATH = os.path.realpath(os.path.dirname(__file__))
 # size of figures
-size = (800,500)
+size = (850,600)
 # colorpalette
 palette = brewer['Set1'][9]
 # tooltips on hover

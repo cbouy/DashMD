@@ -1,4 +1,5 @@
-import re, os, time, copy, glob, sys
+import re, os, time, copy, glob, sys, logging
+from io import StringIO
 from math import pi
 from collections import OrderedDict
 from functools import partial
@@ -7,9 +8,12 @@ import numpy as np
 import pandas as pd
 import pytraj as pt
 import seaborn as sns
+import nbformat
+from nbconvert.preprocessors import ExecutePreprocessor
+import nglview
 from bokeh.models import (
     ColumnDataSource, CustomJS, CustomJSTransform,
-    Legend, PrintfTickFormatter, Range1d,
+    Legend, PrintfTickFormatter, Range1d, Div,
 )
 from bokeh.models.widgets import (
     TextInput, Button, Div, Toggle, Select, Slider, MultiSelect,
@@ -17,8 +21,9 @@ from bokeh.models.widgets import (
 from bokeh.layouts import column
 from bokeh.transform import transform, cumsum
 from bokeh.plotting import figure
-from .utils import *
+from utils import *
 
+log = logging.getLogger("dashmd")
 
 
 class Dashboard:
@@ -214,16 +219,21 @@ class Dashboard:
             ("RMSD (Å)", "@RMSD")
         ]))
         self.rmsd_button = Button(width=100, label="Calculate RMSD", button_type="primary")
-        self.rmsd_traj = MultiSelect(
+        self.trajectory = MultiSelect(
             title="Trajectory file(s)", width=400,
             value=None, options=[],
         )
-        self.rmsd_top = Select(
+        self.topology = Select(
             title="Topology file", width=200,
             value=None, options=[],
         )
+        # NGLview
+        self.view_button = Button(width=80, label="Visualize")
+        self.view_canvas = Div(width=size[0], height=size[1], css_classes=["ngldiv"], text="")
+        # others
         self.mdout_min = {}
         self.mdout_dt = {}
+        self.add_callbacks()
 
 
     def autocomp_callback(self, attr, old, new):
@@ -248,31 +258,34 @@ class Dashboard:
             self.anim_button.button_type = "warning"
 
 
-    def rmsd_files_callback(self, attr, old, new):
+    def traj_top_callback(self, attr, old, new):
+        log.debug(f"Updating list of trajectory and topology files")
         try:
             traj = glob.glob(os.path.join(self.md_dir.value, "*.nc"))
             traj = [os.path.basename(f) for f in traj]
             traj.sort(key=lambda f: os.path.getmtime(os.path.join(self.md_dir.value, f)), reverse=True)
-            self.rmsd_traj.options = traj
+            self.trajectory.options = traj
             # search for .top, .prmtop, .parm7 or .prm
             top = [
                 f for f in os.listdir(self.md_dir.value)
                     if re.search(r'.+\.(prm)?top$', f) or re.search(r'.+\.pa?rm7?$', f)
             ]
-            self.rmsd_top.options = top
+            self.topology.options = top
             if top:
-                self.rmsd_top.value = top[0]
+                self.topology.value = top[0]
         except FileNotFoundError:
             pass
 
 
     def compute_rmsd(self):
-        topology = os.path.join(self.md_dir.value, self.rmsd_top.value)
-        trajectories = [os.path.join(self.md_dir.value, f) for f in self.rmsd_traj.value]
+        topology = os.path.join(self.md_dir.value, self.topology.value)
+        trajectories = [os.path.join(self.md_dir.value, f) for f in self.trajectory.value]
         trajectories.sort(key=lambda f: os.path.getmtime(f), reverse=False)
         traj = pt.iterload(trajectories, topology)
-        frames = list(traj.iterframe(step=get_stepsize(traj), autoimage=True, rmsfit=False,
+        stepsize=get_stepsize(traj)
+        frames = list(traj.iterframe(step=stepsize, autoimage=True, rmsfit=False,
             mask=":ALA,ARG,ASH,ASN,ASP,CYM,CYS,CYX,GLH,GLN,GLU,GLY,HID,HIE,HIP,HYP,HIS,ILE,LEU,LYN,LYS,MET,PHE,PRO,SER,THR,TRP,TYR,VAL@CA,C,O,N"))
+        log.debug(f"Computing RMSD for top {topology} and traj {trajectories} with a step of {stepsize}")
         ref = frames[0]
         results = {"Time": [], "RMSD": []}
         with ProcessPoolExecutor(max_workers=max_workers) as ex:
@@ -282,22 +295,37 @@ class Dashboard:
         self.rmsd_CDS.data = results
 
 
+    def view_structure(self):
+        log.debug("Executing notebook to create structure view")
+        with open(os.path.join(DASHMD_PATH, "static","notebook","nglview.ipynb")) as f:
+            nb = nbformat.read(f, as_version=4)
+        ep = ExecutePreprocessor(timeout=6000)
+        ep.preprocess(nb, {'metadata': {'path': os.path.join(DASHMD_PATH, "static","notebook")}})
+        log.debug("Done with notebook")
+
+
+
     def clear_canvas(self):
+        log.debug("Clearing canvas")
         self.mdinfo_CDS.data = copy.deepcopy(empty_mddata_dic)
 
 
     # search if min or md
     def read_mdout_header(self, mdout):
+        log.debug(f"Reading header of {mdout} mdout file")
         mdout_path = os.path.join(self.md_dir.value, mdout)
+        found_min = False
         with open(mdout_path, 'r') as f:
             for line in f:
                 re1 = re.search(r"imin\s*=\s*([01])", line)
                 if re1:
                     self.mdout_min[mdout] = bool(int(re1.group(1)))
+                    found_min = True
                 re2 = re.search(r"dt\s*=\s*([\.0-9]+)", line)
                 if re2:
                     self.mdout_dt[mdout] = float(re2.group(1))
-                if self.mdout_dt.get(mdout) and self.mdout_min.get(mdout):
+                if self.mdout_dt.get(mdout, False) and found_min:
+                    log.debug(f"Finished reading header of {mdout}. Closing file.")
                     break
 
 
@@ -306,8 +334,10 @@ class Dashboard:
         try:
             t = self.mdout_min[mdout]
         except KeyError:
+            log.debug(f"Parsing {mdout} mdout file to see if it's a minimization")
             self.read_mdout_header(mdout)
             t = self.mdout_min.get(mdout)
+        log.debug(f"{mdout} is a minimization: {t}")
         return t
 
 
@@ -319,6 +349,7 @@ class Dashboard:
         mdout_data = copy.deepcopy(empty_mddata_dic)
         # open file
         with open(mdout_path, 'r') as f:
+            log.debug(f"Parsing data from {mdout} mdout file")
             lines = []
             # stop reading when reaching the following lines
             for line in f:
@@ -336,6 +367,7 @@ class Dashboard:
         for key, lst in mdout_data.items():
             mdout_data[key] = np.array(lst)
         # stream to CDS
+        log.debug(f"Done. Streaming the data from {mdout}")
         self.mdinfo_CDS.stream(mdout_data)
         mdout_data = copy.deepcopy(empty_mddata_dic)
 
@@ -352,6 +384,7 @@ class Dashboard:
 
     def get_mdout_files(self):
         """Update the list of mdout files and automatically select the latest one"""
+        log.debug("Updating the list of mdout files")
         self.mdout_files = [None]
         # set mdout file to read
         self.mdout_files = self.latest_mdout_files()
@@ -364,6 +397,7 @@ class Dashboard:
 
     def parse_mdinfo(self):
         """Parse and stream data read from the mdinfo file"""
+        log.debug("Parsing mdinfo file")
         mdinfo_path = os.path.join(self.md_dir.value, "mdinfo")
 
         with open(mdinfo_path, 'r') as f:
@@ -426,12 +460,15 @@ class Dashboard:
                     last_mdinfo_stream[key] = [value]
                 # update if mdinfo is different from the previous stream
                 if mdinfo_data != last_mdinfo_stream:
+                    log.debug("Streaming new data from mdinfo")
                     for key, value in mdinfo_data.items():
                         mdinfo_data[key] = np.array(value)
                     self.mdinfo_CDS.stream(mdinfo_data)
 
 
-    def display_time(self):
+    def display_simulations_length(self):
+        """Displays simulation length"""
+        log.debug("Computing total time of simulation(s) displayed")
         current_time = OrderedDict()
         # discard min files and limit to XX most recent MD files
         self.md_mdout_files = [f for f in self.mdout_sel.options if not self.is_min(f)][:self.slider.value]
@@ -464,21 +501,27 @@ class Dashboard:
 
 
     def update_dashboard(self):
+        log.debug("Starting update of the dashboard")
         self.get_mdout_files()
         self.parse_mdinfo()
-        self.display_time()
+        self.display_simulations_length()
+        log.debug("Finished updating the dashboard")
 
 
     def callback_slider(self, attr, old, new):
-        self.display_time()
+        log.debug(f"Slider update detected: from {old} to {new}")
+        self.display_simulations_length()
 
 
     def add_callbacks(self):
+        log.debug("Adding callbacks to the widgets")
         # User input
         self.md_dir.on_change("value_input", self.autocomp_callback)
-        self.md_dir.on_change("value", self.rmsd_files_callback)
+        self.md_dir.on_change("value", self.traj_top_callback)
         # RMSD
         self.rmsd_button.on_click(self.compute_rmsd)
+        # NGLView
+        self.view_button.on_click(self.view_structure)
         # MDout parsing
         self.mdout_button.on_click(self.stream_mdout)
         self.slider.on_change("value_throttled", self.callback_slider)

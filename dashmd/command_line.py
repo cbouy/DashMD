@@ -1,10 +1,13 @@
-import argparse, os, sys
-from functools import partial
+import argparse, logging, os
+from tornado.ioloop import IOLoop
+from bokeh.application.handlers import DirectoryHandler
+from bokeh.application import Application
 from bokeh.server.server import Server
-from .dashmd import create_doc
-from .version import __version__
+from bokeh.settings import settings
+from dashmd.version import __version__
+from dashmd.logger import loglevel, dashmd_loglevel_to_bokeh
 
-def main():
+def parse_args():
     current_dir = os.path.abspath(os.path.curdir)
     # Argparse
     parser = argparse.ArgumentParser(
@@ -15,30 +18,46 @@ def main():
         version=f'DashMD version {__version__}', help="Show version and exit")
     parser.add_argument("--port", type=int, default=5100, metavar="INT",
         help="Port number used by the bokeh server")
-    parser.add_argument("--title", type=str, default="DashMD", metavar="STR",
-        help="Title displayed on the HTML document")
-    parser.add_argument("-d", "--default-dir", type=str, default=current_dir,
-        metavar="STR", help="Path to the directory containing mdin and mdout files")
-    parser.add_argument("--update", type=int, default=10,
-        metavar="INT", help="Idle time between each update, in seconds")
-
+    parser.add_argument("--update", type=int, default=10, metavar="INT",
+        help="Update rate to check and load new data")
+    parser.add_argument("--default-dir", type=str, default=".", metavar="STR",
+        help="Default directory")
+    parser.add_argument("--log", metavar="level", help="Set level of the logger",
+        choices=['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'], default='INFO')
 
     # Parse arguments from command line
     args = parser.parse_args()
-    kwargs = {
-        'port': args.port,
-        'allow_websocket_origin': [f'localhost:{args.port}'],
-        'num_procs': 1,
-    }
+    return args
+
+
+def main():
+    # parse command line arguments
+    args = parse_args()
+    # set the logger
+    log = logging.getLogger("dashmd")
+    log.setLevel(loglevel.get(args.log))
+    log.debug(f"Set log level to '{args.log}'")
+    os.environ['BOKEH_PY_LOG_LEVEL'] = dashmd_loglevel_to_bokeh.get(args.log)
+    os.environ['BOKEH_LOG_LEVEL'] = dashmd_loglevel_to_bokeh.get(args.log)
+    log.debug(f"Set Bokeh log level to '{dashmd_loglevel_to_bokeh.get(args.log)}'")
     # start the server
     try:
-        server = Server(partial(create_doc,
-            title=args.title, default_dir=args.default_dir, update=args.update,
-            ), **kwargs)
+        log.info("Preparing the Bokeh server")
+        io_loop = IOLoop.current()
+        # force bokeh to load resources from CDN
+        os.environ['BOKEH_RESOURCES'] = 'cdn'
+        app_dir = os.path.dirname(os.path.realpath(__file__))
+        bokeh_app = Application(DirectoryHandler(filename=app_dir, argv=[args.default_dir, args.update]))
+        server = Server(
+            {'/': bokeh_app}, io_loop=io_loop,
+            port=args.port, num_procs=1,
+            allow_websocket_origin=[f'localhost:{args.port}'],
+        )
     except OSError:
-        sys.stderr.write(f"[ERROR] Port {args.port} is already in use. Please specify a different one by using the --port flag.\n")
+        log.error(f"[ERROR] Port {args.port} is already in use. Please specify a different one by using the --port flag.")
         sys.exit(1)
+
     server.start()
-    print(f"Opening {args.title} on http://localhost:{args.port}")
+    log.info(f"Opening DashMD on http://localhost:{args.port}")
     server.io_loop.add_callback(server.show, "/")
     server.io_loop.start()
