@@ -296,13 +296,50 @@ class Dashboard:
 
 
     def view_structure(self):
-        log.debug("Executing notebook to create structure view")
-        with open(os.path.join(DASHMD_PATH, "static","notebook","nglview.ipynb")) as f:
-            nb = nbformat.read(f, as_version=4)
-        ep = ExecutePreprocessor(timeout=6000)
-        ep.preprocess(nb, {'metadata': {'path': os.path.join(DASHMD_PATH, "static","notebook")}})
-        log.debug("Done with notebook")
+        # TODO: parse traj and top and link them to data (with softlinks ?)
+        self.js_view_structure.code = """
+            // Set up NGL Viewport and Stage if it doesn't exist
+            if (!document.getElementById('nglviewport')) {
+                // Create viewport div
+                var vp = document.createElement('div');
+                vp.setAttribute("id", "nglviewport");
+                vp.setAttribute("style", "height: 600px;")
+                // Insert it inside the ngldiv Div
+                var ngldiv = document.getElementsByClassName('ngldiv')[0];
+                ngldiv.appendChild(vp)
 
+                // Create NGL Stage object
+                var stage = new NGL.Stage( "nglviewport" );
+
+                // Handle window resizing
+                window.addEventListener( "resize", function( event ){
+                    stage.handleResize();
+                }, false );
+            }
+
+            // Setup to load data from rawgit
+            NGL.DatasourceRegistry.add(
+                "data", new NGL.StaticDatasource( "//cdn.rawgit.com/arose/ngl/v2.0.0-dev.32/data/" )
+            );
+
+            // Code for example: parser/prmtop
+
+            stage.loadFile("data://DPDP.prmtop").then(function (o) {
+              NGL.autoLoad("data://DPDP.nc").then(function (frames) {
+                o.addTrajectory(frames, {
+                  initialFrame: 0,
+                  deltaTime: 200
+                })
+                o.addRepresentation("licorice", {scale: 0.5})
+                o.addRepresentation("spacefill", {sele: "not :B"})
+                o.addRepresentation("cartoon")
+                o.addRepresentation("backbone")
+                stage.autoView()
+              })
+            })
+        """
+        # trigger javascript callback by adding an invisible character to the button label
+        self.view_button.label += " "
 
 
     def clear_canvas(self):
@@ -521,6 +558,9 @@ class Dashboard:
         # RMSD
         self.rmsd_button.on_click(self.compute_rmsd)
         # NGLView
+        self.js_view_structure = CustomJS(code="")
+        # hack to execute both python and JS code on button click
+        self.view_button.js_on_change("label", self.js_view_structure)
         self.view_button.on_click(self.view_structure)
         # MDout parsing
         self.mdout_button.on_click(self.stream_mdout)

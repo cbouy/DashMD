@@ -40,7 +40,7 @@ setup(
         'console_scripts': ['dashmd=dashmd.command_line:main'],
     },
     python_requires='>=3.6',
-    install_requires=['numpy>=1.7.1', 'pandas>=0.24.2', 'seaborn>=0.9.0', 'tornado>=4.3.0', 'pytraj>=2.0.4', 'bokeh>=1.3.4'],
+    install_requires=['numpy>=1.7.1', 'pandas>=0.24.2', 'seaborn>=0.9.0', 'tornado>=4.3.0', 'pytraj>=2.0.4', 'bokeh>=1.3.4, <1.4.0'],
     project_urls={
         'Bug Reports':  'https://github.com/cbouy/DashMD/issues',
         'Say Thanks!':  'https://saythanks.io/to/cbouy',

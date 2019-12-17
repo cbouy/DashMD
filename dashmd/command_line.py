@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument("--port", type=int, default=5100, metavar="INT",
         help="Port number used by the bokeh server")
     parser.add_argument("--update", type=int, default=10, metavar="INT",
-        help="Update rate to check and load new data")
+        help="Update rate to check and load new data, in seconds")
     parser.add_argument("--default-dir", type=str, default=".", metavar="STR",
         help="Default directory")
     parser.add_argument("--log", metavar="level", help="Set level of the logger",
@@ -43,11 +43,14 @@ def main():
     # start the server
     try:
         log.info("Preparing the Bokeh server")
+        # create tornado IO loop
         io_loop = IOLoop.current()
-        # force bokeh to load resources from CDN
+        # force bokeh to load resources from CDN (quick fix, not working with bokeh 1.4.0)
         os.environ['BOKEH_RESOURCES'] = 'cdn'
+        # create app
         app_dir = os.path.dirname(os.path.realpath(__file__))
         bokeh_app = Application(DirectoryHandler(filename=app_dir, argv=[args.default_dir, args.update]))
+        # create server
         server = Server(
             {'/': bokeh_app}, io_loop=io_loop,
             port=args.port, num_procs=1,
