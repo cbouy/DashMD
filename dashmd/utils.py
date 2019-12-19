@@ -1,4 +1,5 @@
-import os, logging, copy, re
+import os, logging, copy, re, socket
+from contextlib import closing
 from datetime import datetime
 from multiprocessing import cpu_count
 import numpy as np
@@ -195,21 +196,21 @@ def parse_min_data(line):
     return data
 
 
-# print time since last edit of file
 def pretty_date(last):
-        now = datetime.now()
-        last = datetime.fromtimestamp(last)
-        d = now - last
-        total_seconds = abs(d.total_seconds())
-        days, remainder = divmod(total_seconds, 24*3600)
-        hours, remainder = divmod(remainder, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        if days < 1:
-            if hours < 1:
-                if minutes < 1:
-                    if seconds < 10:
-                        return "just now"
-                    return f"{seconds:.0f} second{'s' if seconds > 1 else ''} ago"
-                return f"{minutes:.0f} minute{'s' if minutes > 1 else ''} ago"
-            return f"{hours:.0f} hour{'s' if hours > 1 else ''} ago"
-        return f"{days:.0f} day{'s' if days > 1 else ''} ago"
+    """Prints time since last edit of file"""
+    now = datetime.now()
+    last = datetime.fromtimestamp(last)
+    d = now - last
+    total_seconds = abs(d.total_seconds())
+    days, remainder = divmod(total_seconds, 24*3600)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if days < 1:
+        if hours < 1:
+            if minutes < 1:
+                if seconds < 10:
+                    return "just now"
+                return f"{seconds:.0f} second{'s' if seconds > 1 else ''} ago"
+            return f"{minutes:.0f} minute{'s' if minutes > 1 else ''} ago"
+        return f"{hours:.0f} hour{'s' if hours > 1 else ''} ago"
+    return f"{days:.0f} day{'s' if days > 1 else ''} ago"

@@ -6,21 +6,20 @@ from dashboard import Dashboard
 log = logging.getLogger("dashmd")
 
 
-def create_app(doc, default_dir=".", update=10):
+def create_app(doc, default_dir="./", update=10, port=5100):
     """Creates a Bokeh document that the server will display"""
     # start loading the dashboard
-    log.info(f"Creating Bokeh app")
+    log.debug(f"Creating Bokeh app")
     log.debug(f"Default directory: {os.path.realpath(default_dir)}")
-    log.debug(f"Update rate for mdinfo callback: {update}s")
+    log.debug(f"Update rate for the dashboard: {update} seconds")
     doc.title = "DashMD"
-    document = Dashboard(default_dir)
+    document = Dashboard(default_dir, port)
 
     def callback_load_dir(new_value):
         if document.anim_button.active:
             document.anim_button.label = "◼ Stop"
             document.anim_button.button_type = "danger"
             document.autocomp_results.children = []
-            global mdinfo_callback
             # first update of the dashboard
             document.get_mdout_files()
             document.parse_mdinfo()
@@ -62,12 +61,12 @@ def create_app(doc, default_dir=".", update=10):
     vol_tab = Panel(title="Volume", child=document.vol_fig)
     dens_tab = Panel(title="Density", child=document.density_fig)
     rmsd_tab = Panel(title="RMSD", child=grid([column([
-        row([document.topology, document.trajectory, document.rmsd_button]),
+        row([document.topology, document.trajectory, column(document.mask, document.rmsd_button)]),
         document.rmsd_fig,
     ])]))
     view_tab = Panel(title="View", child=grid([
         column([
-            row([document.topology, document.trajectory, document.view_button]),
+            row([document.topology, document.rst_traj, document.view_button]),
             document.view_canvas,
         ])
     ]))

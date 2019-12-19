@@ -1,9 +1,10 @@
-import re, os, time, copy, glob, sys, logging
-from io import StringIO
+import re, os, sys, time, copy, glob, sys, logging
+from tempfile import NamedTemporaryFile
 from math import pi
 from collections import OrderedDict
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
+import subprocess
 import numpy as np
 import pandas as pd
 import pytraj as pt
@@ -27,10 +28,13 @@ log = logging.getLogger("dashmd")
 
 
 class Dashboard:
-    def __init__(self, default_dir):
+    def __init__(self, default_dir, port):
+        # path to source directory
+        self.src_dir = os.path.dirname(os.path.abspath(__file__))
         # MD directory and files selection
-        self.md_dir = TextInput(title="Path to MD directory containing mdin and mdout files", value=default_dir, width=750)
+        self.md_dir = TextInput(title="Path to MD directory containing mdin and mdout files", value="", width=750)
         self.anim_button = Toggle(label="▶ Load", button_type="warning", width=80, height=50, active=False)
+        self.port = port
         # container for the buttons that are created while the user types in the textinput
         self.autocomp_results = column(children=[])
         # file used to display temperature, pressure...etc. plots
@@ -42,7 +46,6 @@ class Dashboard:
         self.mdout_button = Button(width=80, height=50, label="Plot", button_type="primary")
         self.mdout_files = [None]
         self.md_mdout_files = []
-
         # mdinfo figures
         progressbar_tooltip = """
         <span style="color:#428df5">@completed{0,0}</span> out of <span style="color:#428df5">@total{0,0}</span> steps (<span style="color:#428df5">@remaining{0,0}</span> remaining)
@@ -83,7 +86,7 @@ class Dashboard:
         )
 
         # number of mdout files displayed on the dashboard at max
-        self.slider = Slider(start=1, end=10, value=2, step=1, callback_policy="mouseup", title="Number of simulations displayed")
+        self.slider = Slider(start=1, end=13, value=2, step=1, callback_policy="mouseup", title="Number of simulations displayed")
         self.dashboard_CDS = ColumnDataSource({
             "y_coords": [0, 1],
             "mdout": ["heat.out", "prod.out"],
@@ -223,17 +226,23 @@ class Dashboard:
             title="Trajectory file(s)", width=400,
             value=None, options=[],
         )
+        self.rst_traj = Select(
+            title="Restart file", width=400,
+            value=None, options=[],
+        )
         self.topology = Select(
             title="Topology file", width=200,
             value=None, options=[],
         )
+        self.mask = TextInput(title="Mask", value="protein@CA,C,O,N", width=200)
         # NGLview
-        self.view_button = Button(width=80, label="Visualize")
+        self.view_button = Button(width=80, label="Visualize", button_type="primary")
         self.view_canvas = Div(width=size[0], height=size[1], css_classes=["ngldiv"], text="")
-        # others
-        self.mdout_min = {}
-        self.mdout_dt = {}
+        # info about simulation files (min, dt, rst and mdcrd files)
+        self.mdout_info = {}
+        # add callbacks
         self.add_callbacks()
+        self.md_dir.value = default_dir
 
 
     def autocomp_callback(self, attr, old, new):
@@ -261,31 +270,47 @@ class Dashboard:
     def traj_top_callback(self, attr, old, new):
         log.debug(f"Updating list of trajectory and topology files")
         try:
-            traj = glob.glob(os.path.join(self.md_dir.value, "*.nc"))
-            traj = [os.path.basename(f) for f in traj]
+            # search netcdf files
+            traj = [
+                f for f in os.listdir(self.md_dir.value)
+                    if re.search(r'.+\.n(et)?c(df)?$', f)
+            ]
             traj.sort(key=lambda f: os.path.getmtime(os.path.join(self.md_dir.value, f)), reverse=True)
             self.trajectory.options = traj
+            # search restart files
+            restart = [
+                f for f in os.listdir(self.md_dir.value)
+                    if re.search(r'.+\.rst7?$', f)
+            ]
+            restart.sort(key=lambda f: os.path.getmtime(os.path.join(self.md_dir.value, f)), reverse=True)
+            self.rst_traj.options = restart
+            if self.rst_traj.options:
+                self.rst_traj.value = self.rst_traj.options[0]
             # search for .top, .prmtop, .parm7 or .prm
             top = [
                 f for f in os.listdir(self.md_dir.value)
                     if re.search(r'.+\.(prm)?top$', f) or re.search(r'.+\.pa?rm7?$', f)
             ]
             self.topology.options = top
-            if top:
-                self.topology.value = top[0]
+            if self.topology.options:
+                self.topology.value = self.topology.options[0]
+
         except FileNotFoundError:
             pass
 
 
     def compute_rmsd(self):
+        """Compute RMSD during a trajectory"""
+        self.rmsd_button.button_type = "default"
+        mask = self.mask.value.replace("protein", ":ALA,ARG,ASH,ASN,ASP,CYM,CYS,CYX,GLH,GLN,GLU,GLY,HID,HIE,HIP,HYP,HIS,ILE,LEU,LYN,LYS,MET,PHE,PRO,SER,THR,TRP,TYR,VAL")
         topology = os.path.join(self.md_dir.value, self.topology.value)
         trajectories = [os.path.join(self.md_dir.value, f) for f in self.trajectory.value]
         trajectories.sort(key=lambda f: os.path.getmtime(f), reverse=False)
         traj = pt.iterload(trajectories, topology)
         stepsize=get_stepsize(traj)
         frames = list(traj.iterframe(step=stepsize, autoimage=True, rmsfit=False,
-            mask=":ALA,ARG,ASH,ASN,ASP,CYM,CYS,CYX,GLH,GLN,GLU,GLY,HID,HIE,HIP,HYP,HIS,ILE,LEU,LYN,LYS,MET,PHE,PRO,SER,THR,TRP,TYR,VAL@CA,C,O,N"))
-        log.debug(f"Computing RMSD for top {topology} and traj {trajectories} with a step of {stepsize}")
+            mask=mask))
+        log.debug(f"Computing RMSD for top {topology} and traj {trajectories} with a step of {stepsize}, using mask {mask}")
         ref = frames[0]
         results = {"Time": [], "RMSD": []}
         with ProcessPoolExecutor(max_workers=max_workers) as ex:
@@ -293,93 +318,84 @@ class Dashboard:
                 results["Time"].append(frame.time)
                 results["RMSD"].append(rmsd)
         self.rmsd_CDS.data = results
+        self.rmsd_button.button_type = "primary"
 
 
     def view_structure(self):
-        # TODO: parse traj and top and link them to data (with softlinks ?)
-        self.js_view_structure.code = """
-            // Set up NGL Viewport and Stage if it doesn't exist
-            if (!document.getElementById('nglviewport')) {
-                // Create viewport div
-                var vp = document.createElement('div');
-                vp.setAttribute("id", "nglviewport");
-                vp.setAttribute("style", "height: 600px;")
-                // Insert it inside the ngldiv Div
-                var ngldiv = document.getElementsByClassName('ngldiv')[0];
-                ngldiv.appendChild(vp)
-
-                // Create NGL Stage object
-                var stage = new NGL.Stage( "nglviewport" );
-
-                // Handle window resizing
-                window.addEventListener( "resize", function( event ){
-                    stage.handleResize();
-                }, false );
-            }
-
-            // Setup to load data from rawgit
-            NGL.DatasourceRegistry.add(
-                "data", new NGL.StaticDatasource( "//cdn.rawgit.com/arose/ngl/v2.0.0-dev.32/data/" )
-            );
-
-            // Code for example: parser/prmtop
-
-            stage.loadFile("data://DPDP.prmtop").then(function (o) {
-              NGL.autoLoad("data://DPDP.nc").then(function (frames) {
-                o.addTrajectory(frames, {
-                  initialFrame: 0,
-                  deltaTime: 200
-                })
-                o.addRepresentation("licorice", {scale: 0.5})
-                o.addRepresentation("spacefill", {sele: "not :B"})
-                o.addRepresentation("cartoon")
-                o.addRepresentation("backbone")
-                stage.autoView()
-              })
-            })
-        """
+        """Visualize a restart file with NGL"""
+        # load rst7 (NGL cannot read it directly)
+        traj = pt.load(self.rst_traj.value, self.topology.value)
+        traj = pt.autoimage(traj)
+        # write as pdb to temporary file (pytraj doesn't accept file buffers as input)
+        with NamedTemporaryFile() as f:
+            pt.write_traj(f.name, traj, format="pdb", overwrite=True)
+            pdb_data = f.read()
+        # create javascript code
+        with open(os.path.join(self.src_dir, "static", "js", "nglviewer.js")) as f:
+            JS_TEMPLATE = f.read()
+        self.js_view_structure.code = JS_TEMPLATE % (pdb_data)
+        log.debug(f"Visualizing top {self.topology.value} and traj {self.rst_traj.value}")
         # trigger javascript callback by adding an invisible character to the button label
         self.view_button.label += " "
 
 
     def clear_canvas(self):
+        """Clear the canvas"""
         log.debug("Clearing canvas")
         self.mdinfo_CDS.data = copy.deepcopy(empty_mddata_dic)
 
 
-    # search if min or md
     def read_mdout_header(self, mdout):
+        """Read the header of mdout file to search for info on minimization, dt, and output files"""
         log.debug(f"Reading header of {mdout} mdout file")
         mdout_path = os.path.join(self.md_dir.value, mdout)
-        found_min = False
+        found_min, found_dt, found_rst, found_mdcrd = (False, False, False, False)
         with open(mdout_path, 'r') as f:
-            for line in f:
+            for i, line in enumerate(f):
                 re1 = re.search(r"imin\s*=\s*([01])", line)
                 if re1:
-                    self.mdout_min[mdout] = bool(int(re1.group(1)))
+                    self.mdout_info[mdout]["min"] = bool(int(re1.group(1)))
                     found_min = True
                 re2 = re.search(r"dt\s*=\s*([\.0-9]+)", line)
                 if re2:
-                    self.mdout_dt[mdout] = float(re2.group(1))
-                if self.mdout_dt.get(mdout, False) and found_min:
-                    log.debug(f"Finished reading header of {mdout}. Closing file.")
+                    self.mdout_info[mdout]["dt"] = float(re2.group(1))
+                    found_dt = True
+                re3 = re.search(r"^\| RESTRT: ([^\s]+)\s*$", line)
+                if re3:
+                    self.mdout_info[mdout]["rst"] = re3.group(1)
+                    found_rst = True
+                re4 = re.search(r"^\|  MDCRD: ([^\s]+)\s*$", line)
+                if re4:
+                    self.mdout_info[mdout]["mdcrd"] = re4.group(1)
+                    found_mdcrd = True
+                if found_min and found_rst and found_mdcrd:
+                    if self.mdout_info[mdout]["min"]: # if min, there's no dt to find
+                        log.debug(f"Finished reading header of {mdout}. Closing minimization file.")
+                        break
+                    else:
+                        if found_dt:
+                            log.debug(f"Finished reading header of {mdout}. Closing MD file.")
+                            break
+                elif i > 150:
+                    log.debug(f"Could not find all the information within the first 150 lines of {mdout}. Closing file.")
                     break
 
 
     def is_min(self, mdout):
         """Returns True if minimization, False if MD, None if the 'imin' keyword was not found"""
         try:
-            t = self.mdout_min[mdout]
+            t = self.mdout_info[mdout]["min"]
         except KeyError:
             log.debug(f"Parsing {mdout} mdout file to see if it's a minimization")
             self.read_mdout_header(mdout)
-            t = self.mdout_min.get(mdout)
+            t = self.mdout_info[mdout].get("min", None)
         log.debug(f"{mdout} is a minimization: {t}")
         return t
 
 
     def stream_mdout(self):
         """Parse and stream data from mdout files (minimization or MD simulation)"""
+        self.mdout_button.button_type = "default"
         self.clear_canvas()
         mdout = self.mdout_sel.value
         mdout_path = os.path.join(self.md_dir.value, mdout)
@@ -407,6 +423,7 @@ class Dashboard:
         log.debug(f"Done. Streaming the data from {mdout}")
         self.mdinfo_CDS.stream(mdout_data)
         mdout_data = copy.deepcopy(empty_mddata_dic)
+        self.mdout_button.button_type = "primary"
 
 
     def latest_mdout_files(self):
@@ -425,6 +442,9 @@ class Dashboard:
         self.mdout_files = [None]
         # set mdout file to read
         self.mdout_files = self.latest_mdout_files()
+        for mdout in self.mdout_files:
+            if not mdout in self.mdout_info:
+                self.mdout_info[mdout] = {}
         mdout_options = self.mdout_sel.options
         self.mdout_sel.options = self.mdout_files
         # if new mdout is created
@@ -437,8 +457,13 @@ class Dashboard:
         log.debug("Parsing mdinfo file")
         mdinfo_path = os.path.join(self.md_dir.value, "mdinfo")
 
-        with open(mdinfo_path, 'r') as f:
-            lines = f.readlines()
+        try:
+            with open(mdinfo_path, 'r') as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            log.error("No mdinfo file in the current directory")
+            return
+
         mdinfo_data = copy.deepcopy(empty_mddata_dic)
         # min or md
         latest_mdout_file = self.latest_mdout_files()[0]
@@ -516,7 +541,7 @@ class Dashboard:
                 i+=1
                 re1 = re.search(r"NSTEP =\s*(\d+)", line)
                 if re1:
-                    current_time[mdout] = int(re1.group(1)) * self.mdout_dt.get(mdout, 0.002) * 1e-3 # in ns
+                    current_time[mdout] = int(re1.group(1)) * self.mdout_info[mdout].get("dt", 0.002) * 1e-3 # in ns
                     break
                 if i > 150:
                     break
