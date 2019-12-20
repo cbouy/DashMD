@@ -26,6 +26,7 @@ def create_app(doc, default_dir="./", update=10, port=5100):
             for mdout in document.mdout_files[:document.slider.value]:
                 document.read_mdout_header(mdout)
             document.display_simulations_length()
+            document.view_structure()
             document.mdinfo_callback = doc.add_periodic_callback(document.update_dashboard, update*1e3)
         else:
             document.anim_button.label = "▶ Load"
@@ -66,8 +67,8 @@ def create_app(doc, default_dir="./", update=10, port=5100):
     ])]))
     view_tab = Panel(title="View", child=grid([
         column([
-            row([document.topology, document.rst_traj, document.view_button]),
-            document.view_canvas,
+            row([document.topology, document.rst_traj, document.view_button, document.ngl_help_button]),
+            row([document.view_canvas, document.ngl_help_div])
         ])
     ]))
     tabs = Tabs(tabs=[ dashboard, view_tab, rmsd_tab, temp_tab, press_tab, e_tab, vol_tab, dens_tab])

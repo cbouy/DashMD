@@ -1,13 +1,16 @@
-// Set up NGL Viewport and data registry
-if (!document.getElementById('nglviewport')) {
-    // Create viewport div
-    var vp = document.createElement('div');
-    vp.setAttribute("id", "nglviewport");
-    vp.setAttribute("style", "height: 700px;")
-    // Insert it inside the ngldiv Div
-    var ngldiv = document.getElementsByClassName('ngldiv')[0];
-    ngldiv.appendChild(vp)
+// NGL div created by bokeh
+var ngldiv = document.getElementsByClassName('ngldiv')[0];
+// Remove NGL Viewport if it exists
+var nglvp = document.getElementById('nglviewport');
+if (nglvp) {
+  nglvp.parentNode.removeChild(nglvp);
 }
+// Create NGL Viewport
+var nglvp = document.createElement('div');
+nglvp.setAttribute("id", "nglviewport");
+nglvp.setAttribute("style", "height: 700px;")
+// Insert it inside the ngldiv Div from bokeh
+ngldiv.appendChild(nglvp)
 // Create NGL Stage object
 var stage = new NGL.Stage( "nglviewport" );
 // Handle window resizing

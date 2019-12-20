@@ -1,4 +1,5 @@
 import re, os, sys, time, copy, glob, sys, logging
+#from io import StringIO
 from tempfile import NamedTemporaryFile
 from math import pi
 from collections import OrderedDict
@@ -8,8 +9,7 @@ import subprocess
 import numpy as np
 import pandas as pd
 import pytraj as pt
-import seaborn as sns
-import nbformat
+#import parmed as pmd
 from nbconvert.preprocessors import ExecutePreprocessor
 import nglview
 from bokeh.models import (
@@ -86,13 +86,13 @@ class Dashboard:
         )
 
         # number of mdout files displayed on the dashboard at max
-        self.slider = Slider(start=1, end=13, value=2, step=1, callback_policy="mouseup", title="Number of simulations displayed")
+        self.slider = Slider(start=1, end=12, value=2, step=1, callback_policy="mouseup", title="Number of simulations displayed")
         self.dashboard_CDS = ColumnDataSource({
             "y_coords": [0, 1],
             "mdout": ["heat.out", "prod.out"],
             "time":  [42, 200],
             "angle": [1.09, 5.193],
-            "color": ["#f54b42", "#4287f5"],
+            "color": [sim_palette[0], sim_palette[1]],
         })
         dashboard_tooltip = """
         <span style="color:@color">@mdout</span>: @time{0,0.00} ns
@@ -236,13 +236,30 @@ class Dashboard:
         )
         self.mask = TextInput(title="Mask", value="protein@CA,C,O,N", width=200)
         # NGLview
+        self.last_rst_update = 0
         self.view_button = Button(width=80, label="Visualize", button_type="primary")
         self.view_canvas = Div(width=size[0], height=size[1], css_classes=["ngldiv"], text="")
+        self.ngl_help_div = Div(width=0, height=0, text="")
+        self.ngl_help_button = Toggle(width=80, label="Help", active=False)
         # info about simulation files (min, dt, rst and mdcrd files)
         self.mdout_info = {}
         # add callbacks
         self.add_callbacks()
         self.md_dir.value = default_dir
+
+
+    def ngl_help(self, new_value):
+        """Show help on NGL controls"""
+        if self.ngl_help_button.active:
+            self.ngl_help_div.width = 300
+            self.ngl_help_div.height = size[1]
+            self.ngl_help_button.label = "Hide"
+            self.ngl_help_div.text = NGL_HELP_TEXT
+        else:
+            self.ngl_help_div.width = 300
+            self.ngl_help_div.height = size[1]
+            self.ngl_help_button.label = "Help"
+            self.ngl_help_div.text = ""
 
 
     def autocomp_callback(self, attr, old, new):
@@ -323,10 +340,28 @@ class Dashboard:
 
     def view_structure(self):
         """Visualize a restart file with NGL"""
-        # load rst7 (NGL cannot read it directly)
-        traj = pt.load(self.rst_traj.value, self.topology.value)
+        # only load if rst7 file was rewritten
+        update_time = os.path.getmtime(os.path.join(self.md_dir.value, self.rst_traj.value))
+        if update_time == self.last_rst_update:
+            log.debug(f"No recent update of restart {self.rst_traj.value}")
+            return
+        else:
+            self.last_rst_update = update_time
+        # display
+        log.debug(f"Visualizing top {self.topology.value} and restart {self.rst_traj.value}")
+        # load rst7 with pytraj (NGL cannot read it directly)
+        traj = pt.load(
+            os.path.join(self.md_dir.value, self.rst_traj.value),
+            os.path.join(self.md_dir.value, self.topology.value)
+        )
         traj = pt.autoimage(traj)
-        # write as pdb to temporary file (pytraj doesn't accept file buffers as input)
+        ## pass to parmed to write the pdb data in a StringIO
+        # struct = pmd.load_file(os.path.join(self.md_dir.value, self.topology.value), xyz=traj.xyz)
+        # f = StringIO()
+        # struct.write_pdb(f)
+        # pdb_data = f.getvalue().encode("ascii")
+        # f.close()
+        # write as pdb to temporary file (much faster than parmed + StringIO)
         with NamedTemporaryFile() as f:
             pt.write_traj(f.name, traj, format="pdb", overwrite=True)
             pdb_data = f.read()
@@ -334,7 +369,6 @@ class Dashboard:
         with open(os.path.join(self.src_dir, "static", "js", "nglviewer.js")) as f:
             JS_TEMPLATE = f.read()
         self.js_view_structure.code = JS_TEMPLATE % (pdb_data)
-        log.debug(f"Visualizing top {self.topology.value} and traj {self.rst_traj.value}")
         # trigger javascript callback by adding an invisible character to the button label
         self.view_button.label += " "
 
@@ -430,7 +464,7 @@ class Dashboard:
         """List all mdout files present in the MD directory, sorted by modification time"""
         mdout_files = [
             f for f in os.listdir(self.md_dir.value)
-                if re.search(r'.+\.m?d?out$', f) and ("nohup.out" not in f)
+                if re.search(r'.+\.(md)?out$', f) and ("nohup.out" not in f)
         ]
         mdout_files.sort(key=lambda f: os.path.getmtime(os.path.join(self.md_dir.value, f)), reverse=True)
         return mdout_files
@@ -551,8 +585,7 @@ class Dashboard:
         # compute properties for the pie plot
         data['angle'] = data['time']/data['time'].sum() * 2*pi
         # color palette
-        palette = sns.color_palette("deep", len(current_time))
-        data['color'] = palette.as_hex()
+        data['color'] = sim_palette[:len(current_time)]
         # reverse index order for the barplot
         data = data.reindex(index=data.index[::-1]).reset_index(drop=True)
         data = data.reset_index().rename(columns={"index":"y_coords"})
@@ -567,6 +600,7 @@ class Dashboard:
         self.get_mdout_files()
         self.parse_mdinfo()
         self.display_simulations_length()
+        self.view_structure()
         log.debug("Finished updating the dashboard")
 
 
@@ -584,6 +618,7 @@ class Dashboard:
         self.rmsd_button.on_click(self.compute_rmsd)
         # NGLView
         self.js_view_structure = CustomJS(code="")
+        self.ngl_help_button.on_click(self.ngl_help)
         # hack to execute both python and JS code on button click
         self.view_button.js_on_change("label", self.js_view_structure)
         self.view_button.on_click(self.view_structure)

@@ -4,7 +4,7 @@ from datetime import datetime
 from multiprocessing import cpu_count
 import numpy as np
 from bokeh.models import HoverTool
-from bokeh.palettes import brewer
+from bokeh.palettes import brewer, Category20
 
 log = logging.getLogger("dashmd")
 
@@ -18,6 +18,7 @@ DASHMD_PATH = os.path.realpath(os.path.dirname(__file__))
 size = (850,600)
 # colorpalette
 palette = brewer['Set1'][9]
+sim_palette = Category20[12]
 # tooltips on hover
 tooltips = [
     ("Step", "@Nsteps"),
@@ -30,12 +31,28 @@ tooltips = [
     ("Volume", "@Volume"),
     ("Density", "@Density"),
 ]
-#
+# empty dictionary for MD data
 empty_mddata_dic = {k:[] for k in [
     "Nsteps", "Time", "Temperature", "Pressure",
     "Etot", "EKtot", "EPtot",
     "Volume", "Density",
 ]}
+# help for the controls
+NGL_HELP_TEXT = """
+scroll: zoom scene
+scroll-ctrl: move near clipping plane
+scroll-shift: move near clipping plane and far fog
+scroll-alt: change isolevel of isosurfaces
+drag-right: pan/translate scene
+drag-left: rotate scene
+drag-middle: zoom scene
+drag-shift-right: zoom scene
+drag-left+right: zoom scene
+drag-ctrl-right: pan/translate hovered component
+drag-ctrl-left: rotate hovered component
+clickPick-middle: auto view picked component element
+hoverPick: show tooltip for hovered component element
+""".replace("\n", "<br />")
 
 class BokehFilter(logging.Filter):
     """Filter bokeh warning messages"""
