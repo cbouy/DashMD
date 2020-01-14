@@ -1,0 +1,2 @@
+include *.md
+global-include *.js *.png *.html

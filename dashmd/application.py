@@ -15,6 +15,9 @@ def create_app(doc, default_dir="./", update=10, port=5100):
     doc.title = "DashMD"
     document = Dashboard(default_dir, port)
 
+    if os.path.exists(os.path.join(document.md_dir.value, "mdinfo")):
+        document.anim_button.button_type = "success"
+
     def callback_load_dir(new_value):
         if document.anim_button.active:
             document.anim_button.label = "◼ Stop"

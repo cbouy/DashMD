@@ -36,6 +36,7 @@ setup(
     ],
     keywords='science chemistry biology ambermd',
     packages=['dashmd'],
+    include_package_data=True,
     entry_points = {
         'console_scripts': ['dashmd=dashmd.command_line:main'],
     },

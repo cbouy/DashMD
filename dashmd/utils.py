@@ -19,6 +19,7 @@ size = (850,600)
 # colorpalette
 palette = brewer['Set1'][9]
 sim_palette = Category20[12]
+sim_palette = sim_palette[::2]+sim_palette[1::2]
 # tooltips on hover
 tooltips = [
     ("Step", "@Nsteps"),
