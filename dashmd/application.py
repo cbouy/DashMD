@@ -71,7 +71,8 @@ def create_app(doc, default_dir="./", update=10, port=5100):
     view_tab = Panel(title="View", child=grid([
         column([
             row([document.topology, document.rst_traj, document.view_button, document.ngl_help_button]),
-            row([document.view_canvas, document.ngl_help_div])
+            row([document.view_canvas, document.ngl_help_div]),
+            row([document.ngl_lig, document.ngl_representations]),
         ])
     ]))
     tabs = Tabs(tabs=[ dashboard, view_tab, rmsd_tab, temp_tab, press_tab, e_tab, vol_tab, dens_tab])

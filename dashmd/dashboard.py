@@ -17,7 +17,7 @@ from bokeh.models import (
     Legend, PrintfTickFormatter, Range1d, Div,
 )
 from bokeh.models.widgets import (
-    TextInput, Button, Div, Toggle, Select, Slider, MultiSelect,
+    TextInput, Button, Div, Toggle, Select, Slider, MultiSelect, CheckboxButtonGroup
 )
 from bokeh.layouts import column
 from bokeh.transform import transform, cumsum
@@ -76,7 +76,7 @@ class Dashboard:
         )
 
         self.eta = Div(
-            width=100, height=50, text="ETA:",
+            width=280, height=50, text="Estimated time remaining:",
             style={"font-weight": "bold", "color": "#444444", "margin-top": "5px"}
         )
 
@@ -238,9 +238,14 @@ class Dashboard:
         # NGLview
         self.last_rst_update = 0
         self.view_button = Button(width=80, label="Visualize", button_type="primary")
-        self.view_canvas = Div(width=size[0], height=size[1], css_classes=["ngldiv"], text="")
+        self.view_canvas = Div(width=size[0], height=size[1]+110, css_classes=["ngldiv"], text="")
         self.ngl_help_div = Div(width=0, height=0, text="")
         self.ngl_help_button = Toggle(width=80, label="Help", active=False)
+        self.ngl_lig = TextInput(title="Ligand name", value="LIG", width=80)
+        self.ngl_representations = CheckboxButtonGroup(
+            labels=["Protein","Ligand","Water","Lipids","Ions"],
+            active=[0,1,2,3,4],
+        )
         # info about simulation files (min, dt, rst and mdcrd files)
         self.mdout_info = {}
         # add callbacks
@@ -334,12 +339,13 @@ class Dashboard:
             for rmsd, frame in zip(ex.map(partial(compute_rmsd, ref=ref), frames), frames):
                 results["Time"].append(frame.time)
                 results["RMSD"].append(rmsd)
+        del traj
         self.rmsd_CDS.data = results
         self.rmsd_button.button_type = "primary"
 
 
-    def view_structure(self):
-        """Visualize a restart file with NGL"""
+    def autoview_structure(self):
+        """Load structure automatically if it has been modified recently"""
         # only load if rst7 file was rewritten
         update_time = os.path.getmtime(os.path.join(self.md_dir.value, self.rst_traj.value))
         if update_time == self.last_rst_update:
@@ -347,7 +353,10 @@ class Dashboard:
             return
         else:
             self.last_rst_update = update_time
-        # display
+        self.view_structure()
+
+    def view_structure(self):
+        """Visualize a restart file with NGL"""
         log.debug(f"Visualizing top {self.topology.value} and restart {self.rst_traj.value}")
         # load rst7 with pytraj (NGL cannot read it directly)
         traj = pt.load(
@@ -535,13 +544,14 @@ class Dashboard:
             re_time = re.search(r'Estimated time remaining:\s*(.+).$', line)
             if re_time:
                 time_left = re_time.group(1)
-                self.eta.text = f"ETA:<br/>{time_left}"
+                time_left = pretty_time(time_left)
+                self.eta.text = f"Estimated time remaining:<br/>{time_left}"
                 break
 
         # last update
-        self.last_update.text = f"Last update:<br/>{pretty_date(os.path.getmtime(mdinfo_path))}"
+        self.last_update.text = f"Last update:<br/>{time_passed(os.path.getmtime(mdinfo_path))}"
         update_time = os.path.getmtime(mdinfo_path)
-        if time.time() - update_time > 3*60: # not updated recently
+        if time.time() - update_time > 5*60: # not updated recently
             self.last_update.style = {"font-weight": "bold", "color": "#d62727", "margin-top": "5px"}
         else:
             self.last_update.style = {"font-weight": "bold", "color": "#444444", "margin-top": "5px"}
@@ -600,7 +610,7 @@ class Dashboard:
         self.get_mdout_files()
         self.parse_mdinfo()
         self.display_simulations_length()
-        self.view_structure()
+        self.autoview_structure()
         log.debug("Finished updating the dashboard")
 
 
@@ -617,7 +627,9 @@ class Dashboard:
         # RMSD
         self.rmsd_button.on_click(self.compute_rmsd)
         # NGLView
-        self.js_view_structure = CustomJS(code="")
+        self.js_view_structure = CustomJS(code="",
+            args={"ligand_mask": self.ngl_lig,"repr": self.ngl_representations}
+        )
         self.ngl_help_button.on_click(self.ngl_help)
         # hack to execute both python and JS code on button click
         self.view_button.js_on_change("label", self.js_view_structure)

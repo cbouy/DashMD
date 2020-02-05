@@ -1,6 +1,5 @@
 import os, logging, copy, re, socket
-from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from multiprocessing import cpu_count
 import numpy as np
 from bokeh.models import HoverTool
@@ -18,7 +17,7 @@ DASHMD_PATH = os.path.realpath(os.path.dirname(__file__))
 size = (850,600)
 # colorpalette
 palette = brewer['Set1'][9]
-sim_palette = Category20[12]
+sim_palette = Category20[12][::-1]
 sim_palette = sim_palette[::2]+sim_palette[1::2]
 # tooltips on hover
 tooltips = [
@@ -214,7 +213,30 @@ def parse_min_data(line):
     return data
 
 
-def pretty_date(last):
+def pretty_time(line):
+    """Decomposes a time string in a human friendly format"""
+    timespaces = {}
+    for timeunit in "day hour minute second".split():
+        content = re.findall(r'([0-9\.]+)\s+' + timeunit, line)
+        if content:
+            timespaces[timeunit + "s"] = float(content[0])
+    total_seconds = timedelta(**timespaces).total_seconds()
+    days, remainder = divmod(total_seconds, 24*3600)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    timestr = []
+    if days >= 1:
+        timestr.append(f"{days:.0f} day" if days == 1 else f"{days:.0f} days")
+    if hours >= 1:
+        timestr.append(f"{hours:.0f} hour" if hours == 1 else f"{hours:.0f} hours")
+    if minutes >= 1:
+        timestr.append(f"{minutes:.0f} minute" if minutes == 1 else f"{minutes:.0f} minutes")
+    if seconds >= 1:
+        timestr.append(f"{seconds:.0f} second" if seconds == 1 else f"{seconds:.0f} seconds")
+    return " ".join(timestr)
+
+
+def time_passed(last):
     """Prints time since last edit of file"""
     now = datetime.now()
     last = datetime.fromtimestamp(last)

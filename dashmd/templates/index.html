@@ -4,4 +4,25 @@
 {% endblock %}
 {% block postamble %}
 <script type="text/javascript" src="../static/js/ngl-2.0.0-dev.37/ngl.js"></script>
+<script type="text/javascript">
+// create NGL stage in ngldiv created by bokeh
+var stage
+var checkExist = setInterval(function() {
+  // wait for ngldiv to be created by BokehJS
+  var ngldiv = document.getElementsByClassName('ngldiv')[0];
+  if (ngldiv) {
+    // Create NGL Viewport
+    var nglvp = document.createElement('div');
+    nglvp.setAttribute("id", "nglviewport");
+    nglvp.setAttribute("style", "height: 700px;")
+    // Insert it inside the ngldiv from bokeh
+    ngldiv.appendChild(nglvp)
+    // Create NGL Stage object
+    stage = new NGL.Stage( "nglviewport" );
+    stage.setParameters({cameraType: "orthographic"})
+    // stop the loop
+    clearInterval(checkExist);
+  }
+}, 200);
+</script>
 {% endblock %}
