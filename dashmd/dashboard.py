@@ -238,7 +238,7 @@ class Dashboard:
         # NGLview
         self.last_rst_update = 0
         self.view_button = Button(width=80, label="Visualize", button_type="primary")
-        self.view_canvas = Div(width=size[0], height=size[1]+110, css_classes=["ngldiv"], text="")
+        self.view_canvas = Div(width=size[0], height=size[1]+60, css_classes=["ngldiv"], text="")
         self.ngl_help_div = Div(width=0, height=0, text="")
         self.ngl_help_button = Toggle(width=80, label="Help", active=False)
         self.ngl_lig = TextInput(title="Ligand name", value="LIG", width=80)
