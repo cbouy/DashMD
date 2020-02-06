@@ -4,8 +4,8 @@ from bokeh.application.handlers import DirectoryHandler
 from bokeh.application import Application
 from bokeh.server.server import Server
 from bokeh.settings import settings
-from dashmd.version import __version__
-from dashmd.logger import loglevel, dashmd_loglevel_to_bokeh
+from .version import __version__
+from .logger import loglevel, dashmd_loglevel_to_bokeh
 
 def parse_args():
     current_dir = os.path.abspath(os.path.curdir)

@@ -10,8 +10,6 @@ import numpy as np
 import pandas as pd
 import pytraj as pt
 #import parmed as pmd
-from nbconvert.preprocessors import ExecutePreprocessor
-import nglview
 from bokeh.models import (
     ColumnDataSource, CustomJS, CustomJSTransform,
     Legend, PrintfTickFormatter, Range1d, Div,
@@ -346,14 +344,16 @@ class Dashboard:
 
     def autoview_structure(self):
         """Load structure automatically if it has been modified recently"""
-        # only load if rst7 file was rewritten
+        # check if rst7 file was rewritten recently
         update_time = os.path.getmtime(os.path.join(self.md_dir.value, self.rst_traj.value))
-        if update_time == self.last_rst_update:
-            log.debug(f"No recent update of restart {self.rst_traj.value}")
-            return
-        else:
+        # and viewing the latest rst7 file
+        if (update_time > self.last_rst_update) and (self.rst_traj.value == self.rst_traj.options[0]):
+            log.debug(f"Updating {self.rst_traj.value} with more recent version: {update_time}")
             self.last_rst_update = update_time
-        self.view_structure()
+            self.view_structure()
+        else:
+            log.debug(f"No recent update of restart {self.rst_traj.value}")
+
 
     def view_structure(self):
         """Visualize a restart file with NGL"""
@@ -558,6 +558,7 @@ class Dashboard:
 
        # only update plots if monitoring the latest mdout file
         if self.mdout_sel.value == latest_mdout_file:
+            log.debug(f"Currently watching the latest mdout '{self.mdout_sel.value}'")
             # fetch previous stream data as dict
             last_mdinfo_stream = self.mdinfo_CDS.to_df().tail(1).reset_index(drop=True).T.to_dict().get(0)
             if last_mdinfo_stream:
@@ -570,6 +571,13 @@ class Dashboard:
                     for key, value in mdinfo_data.items():
                         mdinfo_data[key] = np.array(value)
                     self.mdinfo_CDS.stream(mdinfo_data)
+            else:
+                log.debug(f"No previous mdinfo data could be retrieved. Streaming new data")
+                for key, value in mdinfo_data.items():
+                    mdinfo_data[key] = np.array(value)
+                self.mdinfo_CDS.stream(mdinfo_data)
+        else:
+            log.debug(f"Currently watching mdout '{self.mdout_sel.value}' != '{latest_mdout_file}'")
 
 
     def display_simulations_length(self):

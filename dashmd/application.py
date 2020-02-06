@@ -1,7 +1,7 @@
 import logging, os
 from bokeh.models.widgets import Tabs, Panel
 from bokeh.layouts import row, column, grid
-from dashboard import Dashboard
+from .dashboard import Dashboard
 
 log = logging.getLogger("dashmd")
 

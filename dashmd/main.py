@@ -2,7 +2,7 @@
 
 import logging, sys
 from bokeh.io import curdoc
-from application import create_app
+from dashmd.application import create_app
 
 # parse remaining command line arguments
 _, default_dir, update, port = sys.argv
